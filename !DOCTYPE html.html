@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Who’s Watching Now — Relationship Line + English UI</title>
+<script src="https://cdn.jsdelivr.net/npm/p5@1.9.4/lib/p5.min.js"></script>
+<style>
+  :root{
+    --bg:#0b1020; --panel:#11182eaa; --text:#e8ecf6; --muted:#aab3c7;
+    --warm:#ffb28a; --cool:#7bb6ff; --danger:#ff5b5b;
+  }
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+    font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial}
+  #hud{position:fixed;left:16px;top:16px;z-index:10;display:grid;gap:10px;
+    background:var(--panel);backdrop-filter:blur(8px);border:1px solid #223055;
+    border-radius:14px;padding:12px 14px;box-shadow:0 8px 24px #0008;max-width:600px}
+  #hud h1{margin:0;font-size:14px;color:var(--muted);letter-spacing:.3px}
+  .row{display:flex;gap:8px;flex-wrap:wrap}
+  button{appearance:none;cursor:pointer;border-radius:10px;padding:8px 12px;
+    border:1px solid #415a96;background:linear-gradient(180deg,#16244a,#0e1834);
+    color:var(--text);font-weight:600;letter-spacing:.2px;
+    transition:transform .06s ease, box-shadow .2s ease, border-color .2s ease}
+  button:hover{transform:translateY(-1px);box-shadow:0 6px 18px #0006;border-color:#5d78c0}
+  button[data-active="true"]{border-color:var(--warm);box-shadow:inset 0 0 0 1px var(--warm)}
+  .legend{display:grid;gap:6px;font-size:12px;color:#cdd6ea}
+  .dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:6px}
+  .warm{background:var(--warm)} .cool{background:var(--cool)} .danger{background:var(--danger)}
+  #tip{position:fixed;right:16px;bottom:16px;z-index:10;font-size:12px;color:#aab3c7;
+    background:#0d1430aa;border:1px solid #223055;padding:8px 10px;border-radius:10px;backdrop-filter:blur(8px)}
+  canvas{display:block}
+</style>
+</head>
+<body>
+  <div id="hud">
+    <h1>Camera / Cloud / Me / Cat — English Version</h1>
+    <div class="row">
+      <button id="btnHome">Home (Me & Cat → Camera → Cloud)</button>
+      <button id="btnAway">Away (Cat → Camera → Cloud)</button>
+    </div>
+    <div class="legend">
+      <div><span class="dot cool"></span>Cool: passive watching (Me / Cat → Camera)</div>
+      <div><span class="dot danger"></span>Red: uploading (Camera → Cloud)</div>
+      <div><span class="dot warm"></span>Warm: return data (Cloud → Me) when button pressed</div>
+      <div>Dashed line between Me ↔ Cat = relationship only, no data flow.</div>
+    </div>
+  </div>
+  <div id="tip">Hotkeys: 1=Home, 2=Away, Space=Particle Pulse | Click red button on “Me” to trigger Cloud → Me return</div>
+
+<script>
+let state = 'home';
+const nodes = {
+  cloud:{p:null,label:'Cloud'},
+  cam:{p:null,label:'Camera'},
+  me:{p:null,label:'Me'},
+  cat:{p:null,label:'Cat'},
+};
+const col = {
+  bg:'#0b1020', warm:[255,178,138], cool:[123,182,255], danger:[255,91,91], nodeRing:[210,222,255]
+};
+const particles = [];
+const MAX_PART = 240;
+let interactUntil = 0;
+const INTERACT_WINDOW = 3000;
+
+function setup(){
+  createCanvas(windowWidth, windowHeight);
+  pixelDensity(window.devicePixelRatio||1);
+  layoutNodes();
+  uiBind();
+  seedParticles();
+}
+function windowResized(){ resizeCanvas(windowWidth, windowHeight); layoutNodes(); }
+
+function uiBind(){
+  const homeBtn=document.getElementById('btnHome');
+  const awayBtn=document.getElementById('btnAway');
+  const setActive=()=>{
+    homeBtn.setAttribute('data-active',state==='home'?'true':'false');
+    awayBtn.setAttribute('data-active',state==='away'?'true':'false');
+  };
+  homeBtn.onclick=()=>{state='home';setActive();burst(40);};
+  awayBtn.onclick=()=>{state='away';setActive();burst(40);};
+  setActive();
+  window.addEventListener('keydown',e=>{
+    if(e.key==='1'){state='home';setActive();burst(40);}
+    if(e.key==='2'){state='away';setActive();burst(40);}
+    if(e.key===' '){burst(60);}
+  });
+}
+
+function layoutNodes(){
+  const cx=width/2,cy=height/2,R=min(width,height)*0.28;
+  nodes.cloud.p=createVector(cx,cy-R);
+  nodes.cam.p=createVector(cx-R,cy);
+  nodes.me.p=createVector(cx+R,cy);
+  nodes.cat.p=createVector(cx,cy+R);
+}
+
+class Particle{
+  constructor(a,b,h='warm',s=0.004){
+    this.a=a.copy();this.b=b.copy();this.t=random(1);
+    this.sz=random(2,4);this.h=h;this.speed=s*random(0.85,1.25);
+    this.noiseSeed=random(1000);this.alive=true;
+  }
+  step(){this.t+=this.speed;if(this.t>1)this.alive=false;}
+  draw(){
+    const p=p5.Vector.lerp(this.a,this.b,this.t);
+    const n=noise(this.noiseSeed+this.t*6)-0.5;
+    const off=p5.Vector.sub(this.b,this.a).rotate(HALF_PI).setMag(n*12);
+    p.add(off);
+    const c=this.h==='warm'?col.warm:(this.h==='cool'?col.cool:col.danger);
+    noStroke();fill(c[0],c[1],c[2],140);circle(p.x,p.y,this.sz);
+    fill(c[0],c[1],c[2],40);circle(p.x,p.y,this.sz*3.1);
+  }
+}
+function seedParticles(){particles.length=0;for(let i=0;i<160;i++){const e=pickEdge();const p=new Particle(e.a,e.b,e.h,e.speed);p.t=random(1);particles.push(p);}}
+function burst(n=20){for(let i=0;i<n;i++){const e=pickEdge();particles.push(new Particle(e.a,e.b,e.h,e.speed*1.2));}}
+
+function pickEdge(){
+  const N=nodes;
+  const active = millis() < interactUntil;
+  if(state==='home'){
+    const r=random();
+    if(active && r < 0.25) return {a:N.cloud.p,b:N.me.p,h:'warm',speed:0.0042};
+    if(r < 0.55) return {a:N.me.p,b:N.cam.p,h:'cool',speed:0.004};
+    if(r < 0.90) return {a:N.cat.p,b:N.cam.p,h:'cool',speed:0.004};
+    return {a:N.cam.p,b:N.cloud.p,h:'danger',speed:0.006};
+  }else{
+    const r=random();
+    if(active && r < 0.25) return {a:N.cloud.p,b:N.me.p,h:'warm',speed:0.0042};
+    if(r < 0.55) return {a:N.cat.p,b:N.cam.p,h:'cool',speed:0.004}; // 🔵 blue passive data
+    if(r < 0.90) return {a:N.cam.p,b:N.cloud.p,h:'danger',speed:0.006};
+    return {a:N.cam.p,b:N.cloud.p,h:'danger',speed:0.0065};
+  }
+}
+
+function drawBackground(){
+  background(col.bg);
+  const t=millis()*0.0015,breath=(sin(t)+1)/2;
+  const base=state==='home'?color(10,18,34):color(16,22,40);
+  const top=state==='home'?color(8,14,26,160+breath*40):color(18,26,50,160+breath*40);
+  noStroke();push();translate(width/2,height/2);
+  for(let r=max(width,height);r>0;r-=8){const k=r/max(width,height);const c=lerpColor(top,base,k);fill(c);circle(0,0,r);}pop();
+}
+
+function draw(){
+  drawBackground();
+  // Structure lines
+  stroke(70,100,160,90);strokeWeight(1.4);noFill();
+  link(nodes.cam,nodes.cloud);
+  link(nodes.cam,nodes.me);
+  link(nodes.cam,nodes.cat);
+  link(nodes.cloud,nodes.me);
+  link(nodes.cloud,nodes.cat);
+
+  // Me–Cat relationship line (visual only)
+  stroke(120,150,200,110);
+  drawingContext.setLineDash([6,6]);
+  line(nodes.me.p.x,nodes.me.p.y,nodes.cat.p.x,nodes.cat.p.y);
+  drawingContext.setLineDash([]);
+
+  for(let i=particles.length-1;i>=0;i--){
+    particles[i].step();particles[i].draw();
+    if(!particles[i].alive)particles.splice(i,1);
+  }
+  if(particles.length<MAX_PART)burst(int(random(2,6)));
+
+  cameraLED();
+
+  const meGlow = (millis()<interactUntil)?1:0;
+  drawNode(nodes.cloud,'Cloud',0);
+  drawNode(nodes.cam,'Camera',0);
+  drawNode(nodes.me,'Me',meGlow,true);
+  drawNode(nodes.cat,'Cat',0);
+
+  hudTip();
+}
+
+function link(a,b){line(a.p.x,a.p.y,b.p.x,b.p.y);}
+function drawNode(node,label,highlight=0,isMe=false){
+  const p=node.p;
+  noStroke();fill(90,120,200,28+highlight*30);circle(p.x,p.y,54+highlight*6);
+  fill(16,28,56,230);circle(p.x,p.y,30+highlight*2);
+  noFill();stroke(col.nodeRing[0],col.nodeRing[1],col.nodeRing[2],190);strokeWeight(2);
+  circle(p.x,p.y,36+highlight*3);
+  noStroke();fill(210,220,245);textAlign(CENTER,TOP);textSize(13);text(label,p.x,p.y+24);
+  if(isMe){drawButtonOnMe(p);}
+}
+
+function drawButtonOnMe(pos){
+  const r=16;
+  const hovering=dist(mouseX,mouseY,pos.x,pos.y)<r;
+  noStroke();
+  fill(hovering?color(255,91,91):color(150,30,30));
+  circle(pos.x,pos.y,r*1.4);
+  fill(255,91,91,220);
+  textAlign(CENTER,CENTER);
+  textSize(11);
+  text("🔴",pos.x,pos.y);
+  if(mouseIsPressed && hovering){
+    interactUntil = millis() + INTERACT_WINDOW;
+    burst(50);
+  }
+}
+
+function cameraLED(){
+  const p=nodes.cam.p.copy();
+  const t=millis()*0.004;
+  const blink=(sin(t*PI*0.9)>0.55)?1:0;
+  const extra=state==='home'?random()<0.06:random()<0.10;
+  const on=blink||extra;
+  if(on){
+    noStroke();
+    fill(col.danger[0],col.danger[1],col.danger[2],210);circle(p.x+14,p.y-14,7);
+    fill(col.danger[0],col.danger[1],col.danger[2],60);circle(p.x+14,p.y-14,18);
+  }else{
+    noStroke();fill(120,130,160,120);circle(p.x+14,p.y-14,5);
+  }
+}
+
+function hudTip(){
+  const active = millis() < interactUntil;
+  const s = (state==='home')
+    ? `Home: Me/Cat → Camera → Cloud ${active?'| Cloud → Me active':''}`
+    : `Away: Cat → Camera → Cloud ${active?'| Cloud → Me active':''}`;
+  push();textAlign(CENTER,BOTTOM);textSize(14);fill(200,210,230,170);
+  text(`State: ${s} | 1=Home 2=Away Space=Pulse | Click red button on “Me” to trigger Cloud → Me`,width/2,height-24);
+  pop();
+}
+</script>
+</body>
+</html>
